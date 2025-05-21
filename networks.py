@@ -15,8 +15,9 @@ def wrapperargs(func, args):
 
 class SimpleRNN(nn.Module):
     def __init__(self, input_size=1, output_size=1, unit_type="LSTM", hidden_size=32, skip=1, bias_fl=True,
-                 num_layers=1):
+                 num_layers=1, device='cpu'):
         super(SimpleRNN, self).__init__()
+        self.device = device
         self.input_size = input_size
         self.output_size = output_size
         # Create dictionary of possible block types
@@ -28,6 +29,16 @@ class SimpleRNN(nn.Module):
         self.hidden = None
 
     def forward(self, x):
+        # Ensure hidden state is on the correct device when initialized
+        if self.hidden is None and hasattr(self.rec, 'hidden_size'): # Check if hidden state needs initialization
+            # For LSTMs, hidden is a tuple (h_0, c_0)
+            if isinstance(self.rec, nn.LSTM):
+                self.hidden = (torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device),
+                               torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device))
+            # For GRUs and Elman RNNs, hidden is a single tensor h_0
+            elif isinstance(self.rec, (nn.GRU, nn.RNN)):
+                self.hidden = torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device)
+
         if self.skip:
             # save the residual for the skip connection
             res = x[:, :, 0:self.skip]
@@ -39,6 +50,8 @@ class SimpleRNN(nn.Module):
 
     # detach hidden state, this resets gradient tracking on the hidden state
     def detach_hidden(self):
+        if self.hidden is None:
+            return
         if self.hidden.__class__ == tuple:
             self.hidden = tuple([h.clone().detach() for h in self.hidden])
         else:
@@ -55,13 +68,17 @@ class SimpleRNN(nn.Module):
         model_data = {'model_data': {'model': 'SimpleRNN', 'input_size': self.rec.input_size, 'skip': self.skip,
                                      'output_size': self.lin.out_features, 'unit_type': self.rec._get_name(),
                                      'num_layers': self.rec.num_layers, 'hidden_size': self.rec.hidden_size,
-                                     'bias_fl': self.bias_fl}}
+                                     'bias_fl': self.bias_fl, 
+                                     'original_device': str(self.device)}} # Store original device
 
         if self.save_state:
+            original_device = self.device
+            self.to('cpu') # Move model to CPU for saving
             model_state = self.state_dict()
             for each in model_state:
                 model_state[each] = model_state[each].tolist()
             model_data['state_dict'] = model_state
+            self.to(original_device) # Move model back to original device
 
         miscfuncs.json_save(model_data, file_name, direc)
 
@@ -110,13 +127,14 @@ class SimpleRNN(nn.Module):
     # only proc processes a the input data and calculates the loss, optionally grad can be tracked or not
     def process_data(self, input_data, target_data, loss_fcn, chunk, grad=False):
         with (torch.no_grad() if not grad else nullcontext()):
-            output = torch.empty_like(target_data)
+            output = torch.empty_like(target_data, device=self.device)
             for l in range(int(output.size()[0] / chunk)):
-                output[l * chunk:(l + 1) * chunk] = self(input_data[l * chunk:(l + 1) * chunk])
+                output[l * chunk:(l + 1) * chunk] = self(input_data[l * chunk:(l + 1) * chunk].to(self.device))
                 self.detach_hidden()
             # If the data set doesn't divide evenly into the chunk length, process the remainder
             if not (output.size()[0] / chunk).is_integer():
-                output[(l + 1) * chunk:-1] = self(input_data[(l + 1) * chunk:-1])
+                l = int(output.size()[0] / chunk) # ensure l is defined if loop didn't run
+                output[(l + 1) * chunk:-1] = self(input_data[(l + 1) * chunk:-1].to(self.device))
             self.reset_hidden()
             loss = loss_fcn(output, target_data)
         return output, loss
@@ -138,8 +156,9 @@ model
 
 
 class GatedConvNet(nn.Module):
-    def __init__(self, channels=8, blocks=2, layers=9, dilation_growth=2, kernel_size=3, RNN_Input=True):
+    def __init__(self, channels=8, blocks=2, layers=9, dilation_growth=2, kernel_size=3, RNN_Input=True, device='cpu'):
         super(GatedConvNet, self).__init__()
+        self.device = device
         # Set number of layers  and hidden_size for network layer/s
         self.layers = layers
         self.kernel_size = kernel_size
@@ -150,13 +169,14 @@ class GatedConvNet(nn.Module):
         self.RNN_Input = RNN_Input
         for b in range(blocks):
             self.blocks.append(ResConvBlock1DCausalGated(1 if b == 0 else channels, channels, dilation_growth,
-                                                         kernel_size, layers))
+                                                         kernel_size, layers, device=self.device))
         self.blocks.append(nn.Conv1d(channels*layers*blocks, 1, 1, 1, 0))
 
     def forward(self, x):
         if self.RNN_Input:
             x = x.permute(1, 2, 0)
-        z = torch.empty([x.shape[0], self.blocks[-1].in_channels, x.shape[2]])
+        # Ensure z is created on the correct device
+        z = torch.empty([x.shape[0], self.blocks[-1].in_channels, x.shape[2]], device=self.device)
         for n, block in enumerate(self.blocks[:-1]):
             x, zn = block(x)
             z[:, n*self.channels*self.layers:(n + 1) * self.channels*self.layers, :] = zn
@@ -204,13 +224,17 @@ class GatedConvNet(nn.Module):
             miscfuncs.dir_check(direc)
         model_data = {'model_data': {'model': 'GatedConvNet', 'layers': self.layers, 'channels': self.channels,
                                      'dilation_growth': self.dilation_growth, 'kernel_size': self.kernel_size,
-                                     'blocks': len(self.blocks) - 1}}
+                                     'blocks': len(self.blocks) - 1,
+                                     'original_device': str(self.device)}} # Store original device
 
         if self.save_state:
+            original_device = self.device
+            self.to('cpu') # Move model to CPU for saving
             model_state = self.state_dict()
             for each in model_state:
                 model_state[each] = model_state[each].tolist()
             model_data['state_dict'] = model_state
+            self.to(original_device) # Move model back to original device
 
         miscfuncs.json_save(model_data, file_name, direc)
 
@@ -222,19 +246,20 @@ layers are applied, with the filter size 'kernel_size' and the dilation increasi
 
 
 class ResConvBlock1DCausalGated(nn.Module):
-    def __init__(self, chan_input, chan_output, dilation_growth, kernel_size, layers):
+    def __init__(self, chan_input, chan_output, dilation_growth, kernel_size, layers, device='cpu'):
         super(ResConvBlock1DCausalGated, self).__init__()
         self.channels = chan_output
+        self.device = device
 
         dilations = [dilation_growth ** lay for lay in range(layers)]
         self.layers = nn.ModuleList()
 
         for dil in dilations:
-            self.layers.append(ResConvLayer1DCausalGated(chan_input, chan_output, dil, kernel_size))
+            self.layers.append(ResConvLayer1DCausalGated(chan_input, chan_output, dil, kernel_size, device=self.device))
             chan_input = chan_output
 
     def forward(self, x):
-        z = torch.empty([x.shape[0], len(self.layers)*self.channels, x.shape[2]])
+        z = torch.empty([x.shape[0], len(self.layers)*self.channels, x.shape[2]], device=self.device)
         for n, layer in enumerate(self.layers):
             x, zn = layer(x)
             z[:, n*self.channels:(n + 1) * self.channels, :] = zn
@@ -247,9 +272,10 @@ Gated convolutional layer, zero pads and then applies a causal convolution to th
 
 class ResConvLayer1DCausalGated(nn.Module):
 
-    def __init__(self, chan_input, chan_output, dilation, kernel_size):
+    def __init__(self, chan_input, chan_output, dilation, kernel_size, device='cpu'):
         super(ResConvLayer1DCausalGated, self).__init__()
         self.channels = chan_output
+        self.device = device
 
         self.conv = nn.Conv1d(in_channels=chan_input, out_channels=chan_output * 2, kernel_size=kernel_size, stride=1,
                               padding=0, dilation=dilation)
@@ -258,10 +284,13 @@ class ResConvLayer1DCausalGated(nn.Module):
     def forward(self, x):
         residual = x
         y = self.conv(x)
-        z = torch.tanh(y[:, 0:self.channels, :]) * torch.sigmoid(y[:, self.channels:, :])
+        z_calc = torch.tanh(y[:, 0:self.channels, :]) * torch.sigmoid(y[:, self.channels:, :])
 
         # Zero pad on the left side, so that z is the same length as x
-        z = torch.cat((torch.zeros(residual.shape[0], self.channels, residual.shape[2]-z.shape[2]), z), dim=2)
+        # Ensure padding tensor is on the correct device
+        padding_shape = (residual.shape[0], self.channels, residual.shape[2] - z_calc.shape[2])
+        padding = torch.zeros(padding_shape, device=self.device)
+        z = torch.cat((padding, z_calc), dim=2)
         x = self.mix(z) + residual
         return x, z
 
@@ -280,8 +309,9 @@ This allows you to add an arbitrary number of RNN blocks. The SimpleRNN is easie
 unit followed by a fully connect layer.
 """
 class RecNet(nn.Module):
-    def __init__(self, blocks=None, skip=0):
+    def __init__(self, blocks=None, skip=0, device='cpu'):
         super(RecNet, self).__init__()
+        self.device = device
         if type(blocks) == dict:
             blocks = [blocks]
         # Create container for layers
@@ -290,14 +320,14 @@ class RecNet(nn.Module):
         self.block_types = {}
         self.block_types.update(dict.fromkeys(['RNN', 'LSTM', 'GRU'], BasicRNNBlock))
         self.skip = skip
-        self.save_state = False
+        self.save_state = False # Default to False, can be enabled before saving
         self.input_size = None
         self.training_info = {'current_epoch': 0, 'training_losses': [], 'validation_losses': [],
                               'train_epoch_av': 0.0, 'val_epoch_av': 0.0, 'total_time': 0.0, 'best_val_loss': 1e12}
         # If layers were specified, create layers
         try:
-            for each in blocks:
-                self.add_layer(each)
+            for each_block_params in blocks:
+                self.add_layer(each_block_params)
         except TypeError:
             print('no blocks provided, add blocks to the network via the add_layer method')
 
@@ -321,44 +351,54 @@ class RecNet(nn.Module):
     # Add layer to the network, params is a dictionary contains the layer keyword arguments
     def add_layer(self, params):
         # If this is the first layer, define the network input size
-        if self.input_size:
-            pass
-        else:
+        if self.input_size is None: # Corrected condition
             self.input_size = params['input_size']
 
+        # Pass device to BasicRNNBlock
+        block_constructor = self.block_types[params['block_type']]
         self.layers.add_module('block_'+str(1 + len(list(self.layers.children()))),
-                               self.block_types[params['block_type']](params))
+                               block_constructor(params, device=self.device))
         self.output_size = params['output_size']
 
     def save_model(self, file_name, direc=''):
         if direc:
             miscfuncs.dir_check(direc)
 
-        model_data = {'model_data': {'model': 'RecNet', 'skip': 0}, 'blocks': {}}
+        model_data = {'model_data': {'model': 'RecNet', 'skip': self.skip, # Corrected self.skip
+                                     'original_device': str(self.device)}, # Store original device
+                      'blocks': {}}
         for i, each in enumerate(self.layers):
-            model_data['blocks'][str(i)] = each.params
+            # Ensure params stored do not include device if it was added by us
+            block_params = each.params.copy()
+            block_params.pop('device', None) # Remove device from stored params if it exists
+            model_data['blocks'][str(i)] = block_params
+
 
         if self.training_info:
             model_data['training_info'] = self.training_info
 
-        if self.save_state:
+        if self.save_state: # Check if state needs to be saved
+            original_device = self.device
+            self.to('cpu') # Move model to CPU for saving
             model_state = self.state_dict()
             for each in model_state:
                 model_state[each] = model_state[each].tolist()
             model_data['state_dict'] = model_state
+            self.to(original_device) # Move model back to original device
 
         miscfuncs.json_save(model_data, file_name, direc)
 
 
 class BasicRNNBlock(nn.Module):
-    def __init__(self, params):
+    def __init__(self, params, device='cpu'): # Added device parameter
         super(BasicRNNBlock, self).__init__()
+        self.device = device # Store device
         assert type(params['input_size']) == int, "an input_size of int type must be provided in 'params'"
         assert type(params['output_size']) == int, "an output_size of int type must be provided in 'params'"
         assert type(params['hidden_size']) == int, "an hidden_size of int type must be provided in 'params'"
 
         rec_params = {i: params[i] for i in params if i in ['input_size', 'hidden_size', 'num_layers']}
-        self.params = params
+        self.params = params # Store original params
         # This just calls nn.LSTM() if 'block_type' is LSTM, nn.GRU() if GRU, etc
         self.rec = wrapperkwargs(getattr(nn, params['block_type']), rec_params)
         self.lin_bias = params['lin_bias'] if 'lin_bias' in params else False
@@ -371,6 +411,16 @@ class BasicRNNBlock(nn.Module):
             self.skip = 1
 
     def forward(self, x):
+        # Ensure hidden state is on the correct device when initialized
+        if self.hidden is None: # Check if hidden state needs initialization
+             # For LSTMs, hidden is a tuple (h_0, c_0)
+            if isinstance(self.rec, nn.LSTM):
+                self.hidden = (torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device),
+                               torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device))
+            # For GRUs and Elman RNNs, hidden is a single tensor h_0
+            elif isinstance(self.rec, (nn.GRU, nn.RNN)):
+                self.hidden = torch.zeros(self.rec.num_layers, x.size(1), self.rec.hidden_size, device=self.device)
+
         if self.skip:
             # save the residual for the skip connection
             res = x[:, :, 0:self.skip]
@@ -382,6 +432,8 @@ class BasicRNNBlock(nn.Module):
 
     # detach hidden state, this resets gradient tracking on the hidden state
     def detach_hidden(self):
+        if self.hidden is None:
+            return
         if self.hidden.__class__ == tuple:
             self.hidden = tuple([h.clone().detach() for h in self.hidden])
         else:
@@ -391,45 +443,63 @@ class BasicRNNBlock(nn.Module):
         self.hidden = None
 
 
-def load_model(model_data):
+def load_model(model_data, device='cpu'): # Added device parameter
     model_types = {'RecNet': RecNet, 'SimpleRNN': SimpleRNN, 'GatedConvNet': GatedConvNet}
 
     model_meta = model_data.pop('model_data')
+    
+    # Determine model's intended device if stored, otherwise use provided device or default to CPU
+    # This 'original_device' key is added during save_model
+    target_device = model_meta.pop('original_device', device) if isinstance(model_meta, dict) else device
+
 
     if model_meta['model'] == 'SimpleRNN' or model_meta['model'] == 'GatedConvNet':
-        network = wrapperkwargs(model_types[model_meta.pop('model')], model_meta)
+        # Pass the target_device to the model constructor
+        network = wrapperkwargs(model_types[model_meta.pop('model')], {**model_meta, 'device': target_device})
         if 'state_dict' in model_data:
-            state_dict = network.state_dict()
-            for each in model_data['state_dict']:
-                state_dict[each] = torch.tensor(model_data['state_dict'][each])
-            network.load_state_dict(state_dict)
+            # State dict is loaded before moving the whole model to ensure correct parameter initialization
+            state_dict_torch = {} # new dict for torch tensors
+            for key, value in model_data['state_dict'].items():
+                state_dict_torch[key] = torch.tensor(value)
+            network.load_state_dict(state_dict_torch)
 
     elif model_meta['model'] == 'RecNet':
-        model_meta['blocks'] = []
-        network = wrapperkwargs(model_types[model_meta.pop('model')], model_meta)
-        for i in range(len(model_data['blocks'])):
-            network.add_layer(model_data['blocks'][str(i)])
+        blocks_params = model_data.pop('blocks', {}) # Use pop to remove blocks from model_data
+        # Pass the target_device to the RecNet constructor
+        network = wrapperkwargs(model_types[model_meta.pop('model')], {**model_meta, 'device': target_device, 'blocks': []})
+        
+        for i in range(len(blocks_params)):
+            # Device is handled by RecNet's add_layer which passes its own device
+            network.add_layer(blocks_params[str(i)])
 
         # Get the state dict from the newly created model and load the saved states, if states were saved
         if 'state_dict' in model_data:
-            state_dict = network.state_dict()
-            for each in model_data['state_dict']:
-                state_dict[each] = torch.tensor(model_data['state_dict'][each])
-            network.load_state_dict(state_dict)
-
-        if 'training_info' in model_data.keys():
+            state_dict_torch = {} # new dict for torch tensors
+            for key, value in model_data['state_dict'].items():
+                state_dict_torch[key] = torch.tensor(value)
+            network.load_state_dict(state_dict_torch)
+        
+        if 'training_info' in model_data: # Check if training_info exists
             network.training_info = model_data['training_info']
+    
+    # After model and state_dict are loaded, move the entire model to the target_device.
+    # This also moves all its parameters and buffers.
+    if network: # Ensure network was created
+        network.to(target_device)
+        network.device = target_device # Explicitly set the device attribute after moving
 
     return network
 
 
 # This is a function for taking the old json config file format I used to use and converting it to the new format
-def legacy_load(legacy_data):
+def legacy_load(legacy_data, device='cpu'): # Added device parameter for consistency, though not directly used by legacy logic before conversion
     if legacy_data['unit_type'] == 'GRU' or legacy_data['unit_type'] == 'LSTM':
-        model_data = {'model_data': {'model': 'RecNet', 'skip': 0}, 'blocks': {}}
+        model_data = {'model_data': {'model': 'RecNet', 'skip': 0, 'original_device': device}, 'blocks': {}} # Added device
         model_data['blocks']['0'] = {'block_type': legacy_data['unit_type'], 'input_size': legacy_data['in_size'],
                                      'hidden_size': legacy_data['hidden_size'],'output_size': 1, 'lin_bias': True}
-        if legacy_data['cur_epoch']:
+        # Note: legacy models didn't store device, so we assume CPU or let the new load_model handle it.
+        # The 'original_device': device here is more of a placeholder if this model_data is directly used by the new load_model.
+        if legacy_data.get('cur_epoch'): # Use .get for safer access
             training_info = {'current_epoch': legacy_data['cur_epoch'], 'training_losses': legacy_data['tloss_list'],
                              'val_losses': legacy_data['vloss_list'], 'load_config': legacy_data['load_config'],
                              'low_pass': legacy_data['low_pass'], 'val_freq': legacy_data['val_freq'],
