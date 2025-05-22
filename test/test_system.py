@@ -21,7 +21,7 @@ def test_system():
     init_len = 120
     up_fr = 100
     for i in range(3):
-        print('Starting epoch ' + str(i+1))
+        print(f'Starting epoch {i+1}')
         train_losses = []
         # shuffle the segments at the start of the epoch
         train_input = data.subsets['train'].data['input'][0]
@@ -53,6 +53,6 @@ def test_system():
                 # Set the network hidden state, to detach it from the computation graph
                 network.detach_hidden()
 
-            print('batch ' + str(n+1) + ' loss = ' + str(np.mean(batch_losses)))
-        print('epoch ' + str(i+1) + ' loss = ' + str(np.mean(train_losses)))
+            print(f'batch {n+1} loss = {np.mean(batch_losses)}')
+        print(f'epoch {i+1} loss = {np.mean(train_losses)}')
 

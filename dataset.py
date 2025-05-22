@@ -62,24 +62,25 @@ class DataSet:
     def __init__(self, data_dir='../Dataset/', extensions=('input', 'target')):
         self.extensions = extensions if extensions else ['']
         self.subsets = {}
-        assert type(data_dir) == str, "data_dir should be string,not %r" % {type(data_dir)}
+        assert isinstance(data_dir, str), f"data_dir should be string, not {type(data_dir)}"
         self.data_dir = data_dir
 
     # add a subset called 'name', desired 'frame_len' is given in seconds, or 0 for just one long frame
     def create_subset(self, name, frame_len=0):
-        assert type(name) == str, "data subset name must be a string, not %r" %{type(name)}
-        assert not (name in self.subsets), "subset %r already exists" %name
+        assert isinstance(name, str), f"data subset name must be a string, not {type(name)}"
+        assert not (name in self.subsets), f"subset {name!r} already exists"
         self.subsets[name] = SubSet(frame_len)
 
     # load a file of 'filename' into existing subset/s 'set_names', split fractionally as specified by 'splits',
     # if 'cond_val' is provided the conditioning value will be saved along with the frames of the loaded data
     def load_file(self, filename, set_names='train', splits=None, cond_val=None):
         # Assertions and checks
-        if type(set_names) == str:
+        if isinstance(set_names, str):
             set_names = [set_names]
-        assert len(set_names) == 1 or len(set_names) == len(splits), "number of subset names must equal number of " \
-                                                                     "split markers"
-        assert [self.subsets.get(each) for each in set_names], "set_names contains subsets that don't exist yet"
+        assert len(set_names) == 1 or len(set_names) == len(splits), \
+            "number of subset names must equal number of split markers"
+        assert all(self.subsets.get(each) for each in set_names), \
+            "set_names contains subsets that don't exist yet"
 
         # Load each of the 'extensions'
         for i, ext in enumerate(self.extensions):

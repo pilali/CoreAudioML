@@ -16,7 +16,7 @@ def wrapperargs(func, args):
 class SimpleRNN(nn.Module):
     def __init__(self, input_size=1, output_size=1, unit_type="LSTM", hidden_size=32, skip=1, bias_fl=True,
                  num_layers=1):
-        super(SimpleRNN, self).__init__()
+        super().__init__()
         self.input_size = input_size
         self.output_size = output_size
         # Create dictionary of possible block types
@@ -39,7 +39,7 @@ class SimpleRNN(nn.Module):
 
     # detach hidden state, this resets gradient tracking on the hidden state
     def detach_hidden(self):
-        if self.hidden.__class__ == tuple:
+        if isinstance(self.hidden, tuple):
             self.hidden = tuple([h.clone().detach() for h in self.hidden])
         else:
             self.hidden = self.hidden.clone().detach()
@@ -139,7 +139,7 @@ model
 
 class GatedConvNet(nn.Module):
     def __init__(self, channels=8, blocks=2, layers=9, dilation_growth=2, kernel_size=3, RNN_Input=True):
-        super(GatedConvNet, self).__init__()
+        super().__init__()
         # Set number of layers  and hidden_size for network layer/s
         self.layers = layers
         self.kernel_size = kernel_size
@@ -223,7 +223,7 @@ layers are applied, with the filter size 'kernel_size' and the dilation increasi
 
 class ResConvBlock1DCausalGated(nn.Module):
     def __init__(self, chan_input, chan_output, dilation_growth, kernel_size, layers):
-        super(ResConvBlock1DCausalGated, self).__init__()
+        super().__init__()
         self.channels = chan_output
 
         dilations = [dilation_growth ** lay for lay in range(layers)]
@@ -248,7 +248,7 @@ Gated convolutional layer, zero pads and then applies a causal convolution to th
 class ResConvLayer1DCausalGated(nn.Module):
 
     def __init__(self, chan_input, chan_output, dilation, kernel_size):
-        super(ResConvLayer1DCausalGated, self).__init__()
+        super().__init__()
         self.channels = chan_output
 
         self.conv = nn.Conv1d(in_channels=chan_input, out_channels=chan_output * 2, kernel_size=kernel_size, stride=1,
@@ -281,8 +281,8 @@ unit followed by a fully connect layer.
 """
 class RecNet(nn.Module):
     def __init__(self, blocks=None, skip=0):
-        super(RecNet, self).__init__()
-        if type(blocks) == dict:
+        super().__init__()
+        if isinstance(blocks, dict):
             blocks = [blocks]
         # Create container for layers
         self.layers = nn.Sequential()
@@ -352,10 +352,10 @@ class RecNet(nn.Module):
 
 class BasicRNNBlock(nn.Module):
     def __init__(self, params):
-        super(BasicRNNBlock, self).__init__()
-        assert type(params['input_size']) == int, "an input_size of int type must be provided in 'params'"
-        assert type(params['output_size']) == int, "an output_size of int type must be provided in 'params'"
-        assert type(params['hidden_size']) == int, "an hidden_size of int type must be provided in 'params'"
+        super().__init__()
+        assert isinstance(params['input_size'], int), "an input_size of int type must be provided in 'params'"
+        assert isinstance(params['output_size'], int), "an output_size of int type must be provided in 'params'"
+        assert isinstance(params['hidden_size'], int), "an hidden_size of int type must be provided in 'params'"
 
         rec_params = {i: params[i] for i in params if i in ['input_size', 'hidden_size', 'num_layers']}
         self.params = params
@@ -382,7 +382,7 @@ class BasicRNNBlock(nn.Module):
 
     # detach hidden state, this resets gradient tracking on the hidden state
     def detach_hidden(self):
-        if self.hidden.__class__ == tuple:
+        if isinstance(self.hidden, tuple):
             self.hidden = tuple([h.clone().detach() for h in self.hidden])
         else:
             self.hidden = self.hidden.clone().detach()

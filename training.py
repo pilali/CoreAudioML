@@ -5,7 +5,7 @@ import torch.nn.functional as F
 # ESR loss calculates the Error-to-signal between the output/target
 class ESRLoss(nn.Module):
     def __init__(self):
-        super(ESRLoss, self).__init__()
+        super().__init__()
         self.epsilon = 0.00001
 
     def forward(self, output, target):
@@ -19,7 +19,7 @@ class ESRLoss(nn.Module):
 
 class DCLoss(nn.Module):
     def __init__(self):
-        super(DCLoss, self).__init__()
+        super().__init__()
         self.epsilon = 0.00001
 
     def forward(self, output, target):
@@ -32,7 +32,7 @@ class DCLoss(nn.Module):
 # ESR loss calculates the Error-to-signal between the output/target
 class MultiSpecLoss(nn.Module):
     def __init__(self, fft_sizes=(2048, 1024, 512, 256, 128)):
-        super(MultiSpecLoss, self).__init__()
+        super().__init__()
         self.epsilon = 0.00001
         self.fft_sizes = fft_sizes
         self.spec_loss = []
@@ -50,7 +50,7 @@ class MultiSpecLoss(nn.Module):
 
 class SpecLoss(nn.Module):
     def __init__(self, fft_size=512, hop_size=128):
-        super(SpecLoss, self).__init__()
+        super().__init__()
         self.epsilon = 0.00001
         self.fft_size = fft_size
         self.hop_size = hop_size
@@ -59,8 +59,8 @@ class SpecLoss(nn.Module):
         magx = torch.abs(torch.stft(output, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True))
         magy = torch.abs(torch.stft(target, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True))
 
-        logx = torch.log(torch.where(magx <= self.epsilon, torch.Tensor([self.epsilon]).to(output.device), magx))
-        logy = torch.log(torch.where(magy <= self.epsilon, torch.Tensor([self.epsilon]).to(output.device), magy))
+        logx = torch.log(torch.where(magx <= self.epsilon, torch.tensor(self.epsilon, device=output.device), magx))
+        logy = torch.log(torch.where(magy <= self.epsilon, torch.tensor(self.epsilon, device=output.device), magy))
 
         return F.l1_loss(magx, magy) + F.l1_loss(logx, logy)
 
@@ -70,7 +70,7 @@ class SpecLoss(nn.Module):
 # Only supported for single-channel!
 class PreEmph(nn.Module):
     def __init__(self, filter_cfs, low_pass=0):
-        super(PreEmph, self).__init__()
+        super().__init__()
         self.epsilon = 0.00001
         self.zPad = len(filter_cfs) - 1
 
@@ -98,7 +98,7 @@ class PreEmph(nn.Module):
 
 class LossWrapper(nn.Module):
     def __init__(self, losses, pre_filt=None):
-        super(LossWrapper, self).__init__()
+        super().__init__()
         loss_dict = {'ESR': ESRLoss(), 'DC': DCLoss()}
         if pre_filt:
             pre_filt = PreEmph(pre_filt)
