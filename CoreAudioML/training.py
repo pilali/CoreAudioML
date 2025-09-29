@@ -9,12 +9,9 @@ class ESRLoss(nn.Module):
         self.epsilon = 0.00001
 
     def forward(self, output, target):
-        loss = torch.add(target, -output)
-        loss = torch.pow(loss, 2)
-        loss = torch.mean(loss)
+        loss = torch.mean(torch.pow(target - output, 2))
         energy = torch.mean(torch.pow(target, 2)) + self.epsilon
-        loss = torch.div(loss, energy)
-        return loss
+        return loss / energy
 
 
 class DCLoss(nn.Module):
@@ -23,11 +20,9 @@ class DCLoss(nn.Module):
         self.epsilon = 0.00001
 
     def forward(self, output, target):
-        loss = torch.pow(torch.add(torch.mean(target, 0), -torch.mean(output, 0)), 2)
-        loss = torch.mean(loss)
+        loss = torch.mean(torch.pow(torch.mean(target, 0) - torch.mean(output, 0), 2))
         energy = torch.mean(torch.pow(target, 2)) + self.epsilon
-        loss = torch.div(loss, energy)
-        return loss
+        return loss / energy
 
 # ESR loss calculates the Error-to-signal between the output/target
 class MultiSpecLoss(nn.Module):
@@ -56,11 +51,13 @@ class SpecLoss(nn.Module):
         self.hop_size = hop_size
 
     def forward(self, output, target):
-        magx = torch.abs(torch.stft(output, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True))
-        magy = torch.abs(torch.stft(target, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True))
+        magx = torch.abs(torch.stft(output, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True,
+                                    center=False))
+        magy = torch.abs(torch.stft(target, n_fft=self.fft_size, hop_length=self.hop_size, return_complex=True,
+                                    center=False))
 
-        logx = torch.log(torch.where(magx <= self.epsilon, torch.Tensor([self.epsilon]).to(output.device), magx))
-        logy = torch.log(torch.where(magy <= self.epsilon, torch.Tensor([self.epsilon]).to(output.device), magy))
+        logx = torch.log(torch.where(magx <= self.epsilon, torch.tensor([self.epsilon]).to(output.device), magx))
+        logy = torch.log(torch.where(magy <= self.epsilon, torch.tensor([self.epsilon]).to(output.device), magy))
 
         return F.l1_loss(magx, magy) + F.l1_loss(logx, logy)
 
@@ -110,7 +107,7 @@ class LossWrapper(nn.Module):
 
         self.loss_functions = tuple([items[0] for items in loss_functions])
         try:
-            self.loss_factors = tuple(torch.Tensor([items[1] for items in loss_functions]))
+            self.loss_factors = tuple(torch.tensor([items[1] for items in loss_functions]))
         except IndexError:
             self.loss_factors = torch.ones(len(self.loss_functions))
 
@@ -127,7 +124,7 @@ class LossWrapper(nn.Module):
     def forward(self, output, target):
         loss = 0
         for i, losses in enumerate(self.loss_functions):
-            loss += torch.mul(losses(output, target), self.loss_factors[i])
+            loss += losses(output, target) * self.loss_factors[i]
         return loss
 
 

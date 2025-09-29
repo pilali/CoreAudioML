@@ -16,7 +16,7 @@ def run_net(network):
         assert output.size() == target.size()
 
         optimizer = torch.optim.Adam(network.parameters(), lr=0.001)
-        loss = torch.mean(torch.pow(torch.add(output, -target), 2))
+        loss = torch.mean((output - target) ** 2)
         loss.backward()
         optimizer.step()
         network.detach_hidden()

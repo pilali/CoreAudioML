@@ -53,7 +53,7 @@ class SimpleRNN(nn.Module):
         if direc:
             miscfuncs.dir_check(direc)
         model_data = {'model_data': {'model': 'SimpleRNN', 'input_size': self.rec.input_size, 'skip': self.skip,
-                                     'output_size': self.lin.out_features, 'unit_type': self.rec._get_name(),
+                                     'output_size': self.lin.out_features, 'unit_type': self.rec.__class__.__name__,
                                      'num_layers': self.rec.num_layers, 'hidden_size': self.rec.hidden_size,
                                      'bias_fl': self.bias_fl}}
 
