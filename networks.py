@@ -72,6 +72,7 @@ class SimpleRNN(nn.Module):
 
         # Iterate over the batches
         ep_loss = 0
+        batch_i = 0  # Initialize batch_i in case the loop doesn't execute
         for batch_i in range(math.ceil(shuffle.shape[0] / bs)):
             # Load batch of shuffled segments
             input_batch = input_data[:, shuffle[batch_i * bs:(batch_i + 1) * bs], :]
@@ -172,6 +173,7 @@ class GatedConvNet(nn.Module):
 
         # Iterate over the batches
         ep_loss = 0
+        batch_i = 0  # Initialize batch_i in case the loop doesn't execute
         for batch_i in range(math.ceil(shuffle.shape[0] / bs)):
             # Load batch of shuffled segments
             self.zero_grad()
