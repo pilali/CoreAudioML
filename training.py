@@ -101,8 +101,11 @@ class LossWrapper(nn.Module):
         super(LossWrapper, self).__init__()
         loss_dict = {'ESR': ESRLoss(), 'DC': DCLoss()}
         if pre_filt:
-            pre_filt = PreEmph(pre_filt)
-            loss_dict['ESRPre'] = lambda output, target: loss_dict['ESR'].forward(*pre_filt(output, target))
+            # Convert pre_filt string codes to filter coefficients
+            filter_coeffs = self._get_filter_coefficients(pre_filt)
+            if filter_coeffs is not None:
+                pre_filt = PreEmph(filter_coeffs)
+                loss_dict['ESRPre'] = lambda output, target: loss_dict['ESR'].forward(*pre_filt(output, target))
         loss_functions = [[loss_dict[key], value] for key, value in losses.items()]
 
         self.loss_functions = tuple([items[0] for items in loss_functions])
@@ -110,6 +113,16 @@ class LossWrapper(nn.Module):
             self.loss_factors = tuple(torch.Tensor([items[1] for items in loss_functions]))
         except IndexError:
             self.loss_factors = torch.ones(len(self.loss_functions))
+
+    def _get_filter_coefficients(self, pre_filt_code):
+        """Convert pre_filt string codes to filter coefficients"""
+        filter_map = {
+            'hp': [1, -0.95],  # High pass filter
+            'fd': [1, -1],     # Folded differentiator
+            'aw': [1, -0.85],  # A-weighting approximation
+            'awlp': [1, -0.85] # A-weighting with low pass
+        }
+        return filter_map.get(pre_filt_code, None)
 
     def forward(self, output, target):
         loss = 0
